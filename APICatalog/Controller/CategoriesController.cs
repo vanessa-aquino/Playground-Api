@@ -8,12 +8,15 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Newtonsoft.Json;
+using Microsoft.AspNetCore.Http;
 
 namespace APICatalog.Controller;
 
 [Route("[controller]")]
 [ApiController]
 [EnableRateLimiting("fixedWindow")]
+[Produces("application/json")] // Definir o tipo de retorno
+[ApiConventionType(typeof(DefaultApiConventions))] // Aplica um conjunto padrão de convenções com todos os possíveis Status de retorno dos meus endpoints.
 public class CategoriesController : ControllerBase
 {
     private readonly IUnitOfWork _uof;
@@ -73,8 +76,15 @@ public class CategoriesController : ControllerBase
         return GetCategories(categories);
     }
 
+    /// <summary>
+    /// Get a list of category objects.
+    /// </summary>
+    /// <returns>A list of category objects</returns>
     [HttpGet]
     [ServiceFilter(typeof(ApiLoggingFilter))] // Aplicando o filtro customizado
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status404NotFound)]
+    [ProducesDefaultResponseType]
     public async Task<ActionResult<IEnumerable<CategoryDTO>>> Categories()
     {
         var categories = await _uof.CategoryRepository.GetAllAsync();
@@ -87,6 +97,11 @@ public class CategoriesController : ControllerBase
         return Ok(categoriesDto);
     }
 
+    /// <summary>
+    /// Get a category by its id.
+    /// </summary>
+    /// <param name="id"></param>
+    /// <returns>Category objects</returns>
     [HttpGet("{id:int}", Name = "ObtainCategory")]
     public async Task<ActionResult<CategoryDTO>> GetCategory(int id)
     {
@@ -107,7 +122,24 @@ public class CategoriesController : ControllerBase
         return Ok(categoryDto);
     }
 
+    /// <summary>
+    /// Includes a new category.
+    /// </summary>
+    /// <remarks>
+    /// Request Example:
+    ///     POST api/categories
+    ///     {
+    ///         "categoryId": 1,
+    ///         "name:" "category1",
+    ///         "imageUrl": "http://teste.net/1.jpg"
+    ///     }
+    /// </remarks>
+    /// <param name="categoryDto">Category objects</param>
+    /// <returns>The included category object</returns>
+    /// <remarks>Returns an included category object</remarks>
     [HttpPost("categories")]
+    [ProducesResponseType(StatusCodes.Status201Created)] // Explicitar os tipos de retorno possíveis
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<CategoryDTO>> CreateCategory(CategoryDTO categoryDto)
     {
 
@@ -126,6 +158,10 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesDefaultResponseType]
     public async Task<ActionResult<CategoryDTO>> UpdateCategory(int id, CategoryDTO categoryDto)
     {
         if (id <= 0)

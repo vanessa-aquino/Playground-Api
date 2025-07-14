@@ -12,6 +12,7 @@ namespace APICatalog.Controller;
 
 [Route("[controller]")]
 [ApiController]
+[Produces("application/json")]
 public class ProductsController : ControllerBase
 {
     private readonly IUnitOfWork _uof;
@@ -71,6 +72,10 @@ public class ProductsController : ControllerBase
         return Ok(productsDto);
     }
 
+    /// <summary>
+    /// Displays a list of products.
+    /// </summary>
+    /// <returns>Returns a list of product objects</returns>
     [HttpGet]
     [Authorize(Policy = "UserOnly")]
     public async Task<ActionResult<IEnumerable<ProductDTO>>> Products()
@@ -85,6 +90,11 @@ public class ProductsController : ControllerBase
         return Ok(productsDto);
     }
 
+    /// <summary>
+    /// Get a product by its id.
+    /// </summary>
+    /// <param name="id">Product code</param>
+    /// <returns>Product objects</returns>
     [HttpGet("{id:int}", Name = "ObtainProduct")]
     public async Task<ActionResult<ProductDTO>> GetProduct(int id)
     {

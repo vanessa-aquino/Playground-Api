@@ -86,17 +86,24 @@ public class AuthController : ControllerBase
         return BadRequest(new { error = "Unable to find user" });
     }
 
-        [HttpPost]
-        [Route("login")]
-        public async Task<IActionResult> Login([FromBody] LoginModel model)
+
+    /// <summary>
+    /// Verifies a user's credentials.
+    /// </summary>
+    /// <param name="model">An object of type UserDto</param>
+    /// <returns>Status 200 and the token for the client</returns>
+    /// <remarks>Returns the status 200 and the token</remarks>
+    [HttpPost]
+    [Route("login")]
+    public async Task<IActionResult> Login([FromBody] LoginModel model)
+    {
+        var user = await _userManager.FindByNameAsync(model.UserName!);
+
+        if (user != null && await _userManager.CheckPasswordAsync(user, model.Password!))
         {
-            var user = await _userManager.FindByNameAsync(model.UserName!);
+            var userRoles = await _userManager.GetRolesAsync(user); // Pega todos os roles desse usuário.
 
-            if (user != null && await _userManager.CheckPasswordAsync(user, model.Password!))
-            {
-                var userRoles = await _userManager.GetRolesAsync(user); // Pega todos os roles desse usuário.
-
-                var authClaims = new List<Claim> // Cria uma lista de claims
+            var authClaims = new List<Claim> // Cria uma lista de claims
             {
                 new Claim(ClaimTypes.Name, user.UserName!),
                 new Claim(ClaimTypes.Email, user.Email!),
@@ -104,119 +111,125 @@ public class AuthController : ControllerBase
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             };
 
-                foreach (var userRole in userRoles)
-                {
-                    // Adiciona cara role do usuário como uma claim no token também.
-                    authClaims.Add(new Claim(ClaimTypes.Role, userRole));
-                }
-
-                var token = _tokenService.GenerateAccessToken(authClaims, _configuration);
-                var refreshToken = _tokenService.GenerateRefreshToken();
-
-                // Lê do appsettings.Json quanto tempo o refresh token vai durar.
-                _ = int.TryParse(_configuration["JWT:RefreshTokenValidityInMinutes"], out int refreshTokenValidityInMinutes);
-
-                // Salva no usuário:
-                user.RefreshToken = refreshToken; // O token de refresh recém gerado.
-                user.RefreshTokenExpiryTime = DateTime.Now.AddMinutes(refreshTokenValidityInMinutes); // Sua data de válidade.
-
-                await _userManager.UpdateAsync(user); // Atualiza o usuario com o novo refresh token e a validade.
-
-                return Ok(new
-                {
-                    Token = new JwtSecurityTokenHandler().WriteToken(token), // Acess token codificado
-                    RefreshToken = refreshToken,
-                    Expiration = token.ValidTo
-
-                });
+            foreach (var userRole in userRoles)
+            {
+                // Adiciona cara role do usuário como uma claim no token também.
+                authClaims.Add(new Claim(ClaimTypes.Role, userRole));
             }
 
-            return Unauthorized();
-        }
+            var token = _tokenService.GenerateAccessToken(authClaims, _configuration);
+            var refreshToken = _tokenService.GenerateRefreshToken();
 
-        [HttpPost]
-        [Route("register")]
-        public async Task<IActionResult> Register([FromBody] RegisterModel model)
-        {
-            var userExists = await _userManager.FindByNameAsync(model.UserName!);
+            // Lê do appsettings.Json quanto tempo o refresh token vai durar.
+            _ = int.TryParse(_configuration["JWT:RefreshTokenValidityInMinutes"], out int refreshTokenValidityInMinutes);
 
-            if (userExists != null)
-                return StatusCode(409, new Response { Status = "Error", Message = "User already existis!" });
+            // Salva no usuário:
+            user.RefreshToken = refreshToken; // O token de refresh recém gerado.
+            user.RefreshTokenExpiryTime = DateTime.Now.AddMinutes(refreshTokenValidityInMinutes); // Sua data de válidade.
 
-            ApplicationUser user = new()
+            await _userManager.UpdateAsync(user); // Atualiza o usuario com o novo refresh token e a validade.
+
+            return Ok(new
             {
-                Email = model.Email,
-                SecurityStamp = Guid.NewGuid().ToString(),
-                UserName = model.UserName
-            };
+                Token = new JwtSecurityTokenHandler().WriteToken(token), // Acess token codificado
+                RefreshToken = refreshToken,
+                Expiration = token.ValidTo
 
-            var result = await _userManager.CreateAsync(user, model.Password!);
-
-            if (!result.Succeeded)
-                return StatusCode(500, new Response { Status = "Error", Message = "User creation failed." });
-
-            return Ok(new Response { Status = "Success", Message = "User created successfully!" });
-        }
-
-        [HttpPost]
-        [Route("refresh-token")] // É comum esse endpoint ser chamado automaticamente por apps quando o token JWT expira.
-        public async Task<IActionResult> RefreshToken(TokenModel tokenModel)
-        {
-            if (tokenModel == null)
-                return BadRequest("Invalid client request");
-
-            // Garante que os dois tokens (access + refresh) foram enviados. Se não, lança exceção.
-            string? accessToken = tokenModel.AccessToken ?? throw new ArgumentNullException(nameof(tokenModel));
-            string? refreshToken = tokenModel.RefreshToken ?? throw new ArgumentException(nameof(tokenModel));
-
-            // Mesmo com o access token expirado, o método GetPrincipalFromExpiredToken tenta extrair as claims (usuário, roles etc.) de dentro dele, usando a chave secreta original.
-            var principal = _tokenService.GetPrincipalFromExpiredToken(accessToken!, _configuration);
-
-            if (principal == null)
-                return BadRequest("Invalid access token/refresh token");
-
-            // Pega o nome de usuário que estava dentro do JWT.
-            string userName = principal.Identity.Name;
-
-            var user = await _userManager.FindByNameAsync(userName!);
-
-            if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.Now)
-                return BadRequest("Invalid access token/refresh token");
-
-            // Gera um novo access token (JWT com as mesmas claims do anterior) e um novo refresh token aleatório.
-            var newAccessToken = _tokenService.GenerateAccessToken(principal.Claims.ToList(), _configuration);
-            var newRefreshToken = _tokenService.GenerateRefreshToken();
-
-            // Atualiza o usuário no banco com o novo refresh token.
-            user.RefreshToken = newRefreshToken;
-            await _userManager.UpdateAsync(user);
-
-            // Retorna os novos tokens pro client num JSON.
-            return new ObjectResult(new
-            {
-                accessToken = new JwtSecurityTokenHandler().WriteToken(newAccessToken),
-                refreshToken = newRefreshToken
             });
         }
 
-        [HttpPost]
-        [Route("Revoke/{username}")]
-        [Authorize(Policy = "ExclusiveOnly")]
-        public async Task<IActionResult> Revoke(string username)
-        {
-            var user = await _userManager.FindByNameAsync(username);
-
-            if (user == null)
-                return BadRequest("Invalid username");
-
-            // Zera o refresh token salvo no banco — ou seja, revoga a sessão do usuário.
-            // Isso invalida o token de "lembrar login". Ele terá que fazer login de novo.
-            user.RefreshToken = null;
-
-            await _userManager.UpdateAsync(user);
-
-            return NoContent();
-        }
-
-
+        return Unauthorized();
     }
+
+    /// <summary>
+    /// Register a new user.
+    /// </summary>
+    /// <param name="model">An object of type UserDto</param>
+    /// <returns>Status 200</returns>
+    /// <remarks>Returns the status 200</remarks>
+    [HttpPost]
+    [Route("register")]
+    public async Task<IActionResult> Register([FromBody] RegisterModel model)
+    {
+        var userExists = await _userManager.FindByNameAsync(model.UserName!);
+
+        if (userExists != null)
+            return StatusCode(409, new Response { Status = "Error", Message = "User already existis!" });
+
+        ApplicationUser user = new()
+        {
+            Email = model.Email,
+            SecurityStamp = Guid.NewGuid().ToString(),
+            UserName = model.UserName
+        };
+
+        var result = await _userManager.CreateAsync(user, model.Password!);
+
+        if (!result.Succeeded)
+            return StatusCode(500, new Response { Status = "Error", Message = "User creation failed." });
+
+        return Ok(new Response { Status = "Success", Message = "User created successfully!" });
+    }
+
+    [HttpPost]
+    [Route("refresh-token")] // É comum esse endpoint ser chamado automaticamente por apps quando o token JWT expira.
+    public async Task<IActionResult> RefreshToken(TokenModel tokenModel)
+    {
+        if (tokenModel == null)
+            return BadRequest("Invalid client request");
+
+        // Garante que os dois tokens (access + refresh) foram enviados. Se não, lança exceção.
+        string? accessToken = tokenModel.AccessToken ?? throw new ArgumentNullException(nameof(tokenModel));
+        string? refreshToken = tokenModel.RefreshToken ?? throw new ArgumentException(nameof(tokenModel));
+
+        // Mesmo com o access token expirado, o método GetPrincipalFromExpiredToken tenta extrair as claims (usuário, roles etc.) de dentro dele, usando a chave secreta original.
+        var principal = _tokenService.GetPrincipalFromExpiredToken(accessToken!, _configuration);
+
+        if (principal == null)
+            return BadRequest("Invalid access token/refresh token");
+
+        // Pega o nome de usuário que estava dentro do JWT.
+        string userName = principal.Identity.Name;
+
+        var user = await _userManager.FindByNameAsync(userName!);
+
+        if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.Now)
+            return BadRequest("Invalid access token/refresh token");
+
+        // Gera um novo access token (JWT com as mesmas claims do anterior) e um novo refresh token aleatório.
+        var newAccessToken = _tokenService.GenerateAccessToken(principal.Claims.ToList(), _configuration);
+        var newRefreshToken = _tokenService.GenerateRefreshToken();
+
+        // Atualiza o usuário no banco com o novo refresh token.
+        user.RefreshToken = newRefreshToken;
+        await _userManager.UpdateAsync(user);
+
+        // Retorna os novos tokens pro client num JSON.
+        return new ObjectResult(new
+        {
+            accessToken = new JwtSecurityTokenHandler().WriteToken(newAccessToken),
+            refreshToken = newRefreshToken
+        });
+    }
+
+    [HttpPost]
+    [Route("Revoke/{username}")]
+    [Authorize(Policy = "ExclusiveOnly")]
+    public async Task<IActionResult> Revoke(string username)
+    {
+        var user = await _userManager.FindByNameAsync(username);
+
+        if (user == null)
+            return BadRequest("Invalid username");
+
+        // Zera o refresh token salvo no banco — ou seja, revoga a sessão do usuário.
+        // Isso invalida o token de "lembrar login". Ele terá que fazer login de novo.
+        user.RefreshToken = null;
+
+        await _userManager.UpdateAsync(user);
+
+        return NoContent();
+    }
+
+
+}

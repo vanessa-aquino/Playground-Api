@@ -17,6 +17,7 @@ using Microsoft.OpenApi.Models;
 using System.Text;
 using System.Text.Json.Serialization;
 using Asp.Versioning;
+using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -49,7 +50,29 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "APICatalog", Version = "v1" });
+    // Incluir a documentação:
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Version = "v1",
+        Title = "APICatalog",
+        Description = "Catalog of products and categories.",
+        TermsOfService = new Uri("https://github.com/vanessa-aquino"),
+        Contact = new OpenApiContact
+        {
+            Name = "Vanessa",
+            Email = "vanessaquinoo@hotmail.com",
+            Url = new Uri("https://www.linkedin.com/in/vanessa-aquino01/"),
+        },
+        License = new OpenApiLicense
+        {
+            Name = "Use about License",
+            Url = new Uri("https://github.com/vanessa-aquino"),
+        }
+    });
+
+    // Documentação - Ativando os comentários xml:
+    var xmlFileName = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml"; // Retorno meu Assembly, obtenho seu nome e passo o nome para string e concateno com o ".xml".
+    c.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFileName)); // Obtenho o diretório base do app e o combino com o nome do meu arquivo xml e o adiciono ao Swagger.
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme() // Adicionando uma definição de segurança chamada "Bearer"
     {
