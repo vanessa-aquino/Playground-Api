@@ -96,10 +96,10 @@ public class ProductsController : ControllerBase
     /// <param name="id">Product code</param>
     /// <returns>Product objects</returns>
     [HttpGet("{id:int}", Name = "ObtainProduct")]
-    public async Task<ActionResult<ProductDTO>> GetProduct(int id)
+    public async Task<ActionResult<ProductDTO>> GetProduct(int? id)
     {
-        if (id <= 0)
-            return NotFound();
+        if (id == null || id <= 0)
+            return BadRequest("Invalid Id");
 
         var product = await _uof.ProductRepository.GetAsync(p => p.ProductId == id);
 
