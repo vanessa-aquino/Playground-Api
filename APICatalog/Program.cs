@@ -194,6 +194,8 @@ builder.Logging.AddProvider(new CustomLoggerProvider(new CustomLoggerProviderCon
 
 builder.Services.AddAutoMapper(typeof(ProductDTOMappingProfile));
 
+builder.Services.AddMemoryCache(); // Registrando o serviço de cache em memória.
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
